@@ -1,6 +1,5 @@
 package term
 
-import "core:c/libc"
 import "core:fmt"
 import "core:os"
 
@@ -12,11 +11,10 @@ Termios :: struct {
 	c_lflag:  u32, // local modes
 	c_cc:     [32]u8, // control characters
 	c_ispeed: u64, // input speed
-	c_ospeed: u64, // output speed 
+	c_ospeed: u64, // output speed
 }
 
 TermDisInt :: distinct i32
-
 
 STDIN_FILENO :: 0
 
@@ -47,43 +45,12 @@ EINVL: TermDisInt : 22
 ENOTTY: TermDisInt : 25
 
 
-//Special charater keys to be processed differently
-KEYS :: enum int {
-	CTRL_C     = 3,
-	CTRL_D     = 4,
-	CTRL_P     = 16,
-	CTRL_N     = 14,
-	BACK_SPACE = 127,
-}
-
-
 // Character keys that kill the terminal process
 QUIT_KEYS :: KEYS_SET{.CTRL_D, .CTRL_C}
 
 NAVEGATION_KEYS :: KEYS_SET{.CTRL_N, .CTRL_P}
 
 KEYS_SET :: bit_set[KEYS]
-
-
-when ODIN_OS == .Windows {
-
-} else when ODIN_OS == .Darwin {
-	//TODO: need to test in Mac. :-(  I don't own one
-	foreign import tlibc "system:System.framework"
-} else {
-	foreign import tlibc "system:c"
-	@(default_calling_convention = "c")
-	foreign tlibc {
-		//Get terminal attributes. This is linked to the termios libc library
-		tcgetattr :: proc(fd: u32, termios: ^Termios) -> int ---
-		//Set terminal attributes. This is linked to the termios libc library
-		tcsetattr :: proc(fd: u32, optional_actions: u32, termios: ^Termios) -> int ---
-		// getchar :: proc() -> int ---
-		__errno_location :: proc() -> ^int ---
-		// strerror :: proc(errnum: int) -> ^u8 ---
-		// fflush :: proc(stream: i32) -> i32 ---
-	}
-}
 
 
 /*
@@ -101,40 +68,25 @@ err_to_string :: proc(eno: TermDisInt) -> string {
 	return "Unable to decode ERROR"
 }
 
-read :: proc(buff: []byte) -> (read: int, err: TermError) {
-	if len(buff) == 0 {
-		return 0, TermErrno.BufferIsZeroLen
-	} else if len(buff) > MAX_LEN {
-		return 0, TermErrno.BufferSizeOverLimit
-	}
+// flush :: proc(c: i32) {
+// 	fmt.printf("%c", c)
+// }
+//
+//
 
-	old_term: Termios
-	if err := tcgetattr(STDIN_FILENO, &old_term); err != 0 {
-		return 0, TermDisInt(err)
-	}
-
-	raw_term := old_term
-
-	raw_term.c_lflag &~= (ICANON | ECHO)
-
-	if err := tcsetattr(STDIN_FILENO, TCSANOW, &raw_term); err != 0 {
-		return 0, TermDisInt(err)
-	}
+handle_keys :: proc(buff: []byte) -> (read: int, error: TermError) {
 
 	length := 0
 	exitos: bool
-	for {
-		c := libc.getchar()
-		// c := getchar()
+	loop: for {
+		c := get_char()
+		// fmt.printf("\n%d == %c\n", c, c)
 
 		switch KEYS(c) {
 		//BUG: weird behavior here. check this keys are being read correctly
 		case .CTRL_C, .CTRL_D:
 			exitos = true
-			if err := tcsetattr(STDIN_FILENO, TCSANOW, &old_term); err != 0 {
-				return 0, TermDisInt(err)
-			}
-			break
+			break loop
 		case .CTRL_P:
 			fmt.println("PREVIOUS")
 		case .CTRL_N:
@@ -142,21 +94,17 @@ read :: proc(buff: []byte) -> (read: int, err: TermError) {
 		case .BACK_SPACE:
 			if length > 0 {
 				// fmt.printf("%v %d\n", os.stdout, os.stdout)
-				fmt.print("\b \b")
-				_ = libc.fflush(libc.stdin)
+				// fmt.print("\x1b[D\x1b[P")
+				fmt.printf("%s%s", ANSI_CURSOR_BACK, ANSI_DEL_CHAR)
 				length -= 1
+				flush()
 			}
 			continue
-		}
-
-		// check key bindings
-		// if _term_mode == .VIM {
-		// }
-
-		if c == '\n' {
+		case .ENTER:
 			fmt.printf("\n")
-			break
+			break loop
 		}
+
 
 		// keep to map character codes through development
 		// fmt.printf("char : %d\n", c)
@@ -166,15 +114,10 @@ read :: proc(buff: []byte) -> (read: int, err: TermError) {
 		length += 1
 	}
 
-
-	if err := tcsetattr(STDIN_FILENO, TCSANOW, &old_term); err != 0 {
-		return 0, TermDisInt(err)
-	}
-
 	if exitos {
+		disable_raw_mode()
 		os.exit(0)
 	} else {
 		return length, nil
 	}
-
 }
