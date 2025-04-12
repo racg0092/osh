@@ -4,6 +4,17 @@ import "core:fmt"
 import "core:os"
 
 
+ModeType :: distinct u8
+
+TermMode :: enum ModeType {
+	NORMAL = 0,
+	INSERT,
+	SELECT,
+}
+
+// set different modes like vim
+MODE: TermMode = TermMode.NORMAL
+
 Termios :: struct {
 	c_iflag:  u32, // input modes
 	c_oflag:  u32, // output modes
@@ -68,11 +79,6 @@ err_to_string :: proc(eno: TermDisInt) -> string {
 	return "Unable to decode ERROR"
 }
 
-// flush :: proc(c: i32) {
-// 	fmt.printf("%c", c)
-// }
-//
-//
 
 handle_keys :: proc(buff: []byte) -> (read: int, error: TermError) {
 
@@ -80,10 +86,10 @@ handle_keys :: proc(buff: []byte) -> (read: int, error: TermError) {
 	exitos: bool
 	loop: for {
 		c := get_char()
+		//NOTE: for when i need to see the code of a character they can vary between OS
 		// fmt.printf("\n%d == %c\n", c, c)
 
 		switch KEYS(c) {
-		//BUG: weird behavior here. check this keys are being read correctly
 		case .CTRL_C, .CTRL_D:
 			exitos = true
 			break loop
@@ -105,9 +111,6 @@ handle_keys :: proc(buff: []byte) -> (read: int, error: TermError) {
 			break loop
 		}
 
-
-		// keep to map character codes through development
-		// fmt.printf("char : %d\n", c)
 		fmt.printf("%c", c)
 
 		buff[length] = byte(c)
